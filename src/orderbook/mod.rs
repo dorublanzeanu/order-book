@@ -156,10 +156,11 @@ pub struct OrderBook {
     asks: HashMap<u32, Vec<Order>>,
     bids: HashMap<u32, Vec<Order>>,
     trades: Vec<Trade>,
+    trade_active: bool,
 }
 
 impl OrderBook {
-    pub fn new(ticker: &str) -> Self {
+    pub fn new(ticker: &str, trade_active: bool) -> Self {
         OrderBook {
             max_bid: 0,
             min_ask: 0,
@@ -167,6 +168,7 @@ impl OrderBook {
             asks: HashMap::new(),
             bids: HashMap::new(),
             trades: vec![],
+            trade_active: trade_active,
         }
     }
 
@@ -186,15 +188,28 @@ impl OrderBook {
                     if self.trade_active {
                         // Check if corresponding order in asks and can trade
                         if let Some(val) = self.asks.get_mut(&order.price()) {
-                            let ack = order.ack();
-                            let trade = Trade::new(order, val.remove(0));
-                            let trade_resp = trade.get_trade_response();
+                            match val.iter().enumerate().find_map(|(k, o)| {
+                                if o.qty() == order.qty() {
+                                    Some(k)
+                                } else {
+                                    None
+                                }
+                            }) {
+                                Some(k) => {
+                                    let ack = order.ack();
+                                    let trade = Trade::new(order, val.remove(k));
+                                    let trade_resp = trade.get_trade_response();
 
-                            self.trades.push(trade);
-                            if val.len() == 0 {
-                                self.asks.remove_entry(&price);
+                                    self.trades.push(trade);
+                                    if val.len() == 0 {
+                                        self.asks.remove_entry(&price);
+                                    }
+                                    res = (Some(ack), Some(trade_resp));
+                                }
+                                None => {
+                                    res = (Some(order.reject()), None);
+                                }
                             }
-                            res = (Some(ack), Some(trade_resp));
                         }
                     } else {
                         res = (Some(order.reject()), None);
@@ -236,16 +251,33 @@ impl OrderBook {
 
                 if price < self.max_bid && self.bids.len() > 0 {
                     // Check if corresponding order in asks and can trade
-                    if let Some(val) = self.bids.get_mut(&order.price()) {
-                        let ack = order.ack();
-                        let trade = Trade::new(val.remove(0), order);
-                        let trade_resp = trade.get_trade_response();
+                    if self.trade_active {
+                        if let Some(val) = self.bids.get_mut(&order.price()) {
+                            match val.iter().enumerate().find_map(|(k, o)| {
+                                if o.qty() == order.qty() {
+                                    Some(k)
+                                } else {
+                                    None
+                                }
+                            }) {
+                                Some(k) => {
+                                    let ack = order.ack();
+                                    let trade = Trade::new(val.remove(k), order);
+                                    let trade_resp = trade.get_trade_response();
 
-                        self.trades.push(trade);
-                        if val.len() == 0 {
-                            self.bids.remove_entry(&price);
+                                    self.trades.push(trade);
+                                    if val.len() == 0 {
+                                        self.bids.remove_entry(&price);
+                                    }
+                                    res = (Some(ack), Some(trade_resp));
+                                }
+                                None => {
+                                    res = (Some(order.reject()), None);
+                                }
+                            }
                         }
-                        res = (Some(ack), Some(trade_resp));
+                    } else {
+                        res = (Some(order.reject()), None);
                     }
                 } else if price == self.max_bid {
                     // if prices is the same as best ask, reject
@@ -289,7 +321,10 @@ impl OrderBook {
         user_id: u32,
         order_id: u32,
     ) -> (Option<Response>, Option<Response>) {
+        let mut res = (Some(Response::Acknowledge { user_id, order_id }), None);
         let mut found = false;
+        let (mut price, mut order_idx) = (0u32, 0usize);
+
         for (k, v) in self.asks.iter_mut() {
             let x_in_v = v.iter().enumerate().find_map(|(k, val)| {
                 if val.user_id == user_id && val.order_id == order_id {
@@ -298,17 +333,80 @@ impl OrderBook {
                     None
                 }
             });
-            if let Some(k) = x_in_v {
-                v.remove(k);
+            if let Some(idx) = x_in_v {
+                price = *k;
+                order_idx = idx;
                 found = true;
                 break;
             }
         }
 
         if found {
-            (Some(Response::Acknowledge { user_id, order_id }), None)
+            let v = self.asks.get_mut(&price).unwrap();
+
+            if v.len() == 1 {
+                self.asks.remove_entry(&price);
+                if price == self.min_ask {
+                    match self.asks.keys().min() {
+                        Some(k) => {
+                            self.min_ask = *k;
+                            res = (
+                                Some(Response::Acknowledge { user_id, order_id }),
+                                Some(self.asks.get_key_value(&k).unwrap().1[0].best(Side::Sell)),
+                            );
+                        }
+                        None => {
+                            self.min_ask = 0;
+                        }
+                    };
+                }
+            } else {
+                v.remove(order_idx);
+            }
+            res
         } else {
-            (Some(Response::Reject { user_id, order_id }), None)
+            for (k, v) in self.bids.iter_mut() {
+                let x_in_v = v.iter().enumerate().find_map(|(k, val)| {
+                    if val.user_id == user_id && val.order_id == order_id {
+                        Some(k)
+                    } else {
+                        None
+                    }
+                });
+                if let Some(idx) = x_in_v {
+                    price = *k;
+                    order_idx = idx;
+                    found = true;
+                    break;
+                }
+            }
+
+            if found {
+                let v = self.bids.get_mut(&price).unwrap();
+
+                if v.len() == 1 {
+                    self.bids.remove_entry(&price);
+                    if price == self.max_bid {
+                        match self.bids.keys().max() {
+                            Some(k) => {
+                                self.max_bid = *k;
+                                res = (
+                                    Some(Response::Acknowledge { user_id, order_id }),
+                                    Some(self.bids.get_key_value(&k).unwrap().1[0].best(Side::Buy)),
+                                );
+                            }
+                            None => {
+                                self.max_bid = 0;
+                            }
+                        }
+                    }
+                } else {
+                    v.remove(order_idx);
+                }
+            } else {
+                res = (Some(Response::Reject { user_id, order_id }), None)
+            }
+            res
         }
     }
 
@@ -345,14 +443,14 @@ mod tests {
     #[test]
     #[ignore]
     fn test_empty_orderbook() {
-        let ob = OrderBook::new("TSLA");
+        let ob = OrderBook::new("TSLA", false);
         assert_eq!("TSLA", ob.ticker());
     }
 
     #[test]
     #[ignore]
     fn test_add_1_bid() {
-        let mut ob = OrderBook::new("TSLA");
+        let mut ob = OrderBook::new("TSLA", false);
 
         ob.new_user_action(UserAction::NewOrder {
             user_id: 1,
@@ -369,7 +467,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_add_1_bid_1_ask() {
-        let mut ob = OrderBook::new("TSLA");
+        let mut ob = OrderBook::new("TSLA", false);
 
         let res1 = ob.new_user_action(UserAction::NewOrder {
             user_id: 1,
@@ -418,7 +516,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_add_3_bids_verfy_sorted() {
-        let mut ob = OrderBook::new("TSLA");
+        let mut ob = OrderBook::new("TSLA", false);
 
         let res1 = ob.new_user_action(UserAction::NewOrder {
             user_id: 1,

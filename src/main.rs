@@ -63,7 +63,7 @@ async fn process(
             if let Ok(val) = cons.lock().as_mut() {
                 let entry = val
                     .entry(String::from("IBM"))
-                    .or_insert(OrderBook::new("IBM"));
+                    .or_insert(OrderBook::new("IBM", false));
                 let response = entry.new_user_action(action);
                 if let Ok(rsp) = resp.lock().as_mut() {
                     rsp.push(response);
