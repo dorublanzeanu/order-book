@@ -192,7 +192,7 @@ impl OrderBook {
             Side::Buy => {
                 let entry = self.bids.entry(order.price()).or_insert(vec![]);
 
-                if price > self.min_ask && self.asks.len() > 0 {
+                if price >= self.min_ask && self.asks.len() > 0 {
                     if self.trade_active {
                         // Check if corresponding order in asks and can trade
                         if let Some(val) = self.asks.get_mut(&order.price()) {
@@ -222,9 +222,6 @@ impl OrderBook {
                     } else {
                         res = (Some(order.reject()), None);
                     }
-                } else if price == self.min_ask {
-                    // if prices is the same as best ask, reject
-                    res = (Some(order.reject()), None);
                 } else if price >= self.max_bid || self.max_bid == 0 {
                     // if none of the above check if best bid and
                     let ack = order.ack();
@@ -257,7 +254,7 @@ impl OrderBook {
             Side::Sell => {
                 let entry = self.asks.entry(order.price()).or_insert(vec![]);
 
-                if price < self.max_bid && self.bids.len() > 0 {
+                if price <= self.max_bid && self.bids.len() > 0 {
                     // Check if corresponding order in asks and can trade
                     if self.trade_active {
                         if let Some(val) = self.bids.get_mut(&order.price()) {
@@ -287,9 +284,6 @@ impl OrderBook {
                     } else {
                         res = (Some(order.reject()), None);
                     }
-                } else if price == self.max_bid {
-                    // if prices is the same as best ask, reject
-                    res = (Some(order.reject()), None);
                 } else if price <= self.min_ask || self.min_ask == 0 {
                     let ack = order.ack();
                     // if none of the above check if best bid
@@ -365,11 +359,20 @@ impl OrderBook {
                         }
                         None => {
                             self.min_ask = 0;
+                            res = (
+                                Some(Response::Acknowledge { user_id, order_id }),
+                                Some(Response::Best{side: String::from("S"), price: 0, qty: 0}),
+                            );
                         }
                     };
                 }
             } else {
+                // if one of best asks is canceled -> show best
                 v.remove(order_idx);
+                res = (
+                    Some(Response::Acknowledge { user_id, order_id }),
+                    Some(self.asks.get_key_value(&price).unwrap().1[0].best(Side::Sell)),
+                );
             }
             res
         } else {
@@ -405,11 +408,20 @@ impl OrderBook {
                             }
                             None => {
                                 self.max_bid = 0;
+                                res = (
+                                    Some(Response::Acknowledge { user_id, order_id }),
+                                    Some(Response::Best{side: String::from("B"), price: 0, qty: 0}),
+                                );
                             }
                         }
                     }
                 } else {
+                    // if one of best bids is canceled -> show best
                     v.remove(order_idx);
+                    res = (
+                        Some(Response::Acknowledge { user_id, order_id }),
+                        Some(self.bids.get_key_value(&price).unwrap().1[0].best(Side::Buy)),
+                    );
                 }
             } else {
                 res = (Some(Response::Reject { user_id, order_id }), None)
