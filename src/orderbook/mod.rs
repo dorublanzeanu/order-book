@@ -1666,6 +1666,421 @@ mod tests {
     }
 
     #[test]
+    fn test_scenario_10() {
+        // #name: scenario 10
+        // #descr: balanced book, cancel behind best bid and offer
+        let mut ob = OrderBook::new("IBM", false);
+
+        // # build book, TOB = 10/11
+        // N, 1, IBM, 10, 100, B, 1
+        // A, 1, 1
+        // B, B, 10, 100
+        let res1 = add_new_order!(ob, 1, "IBM", 10, 100, "B", 1);
+        assert_eq!(
+            res1.0,
+            Some(Response::Acknowledge {
+                user_id: 1,
+                order_id: 1
+            })
+        );
+        assert_eq!(
+            res1.1,
+            Some(Response::Best {
+                side: String::from("B"),
+                price: 10,
+                qty: 100
+            })
+        );
+
+        // N, 1, IBM, 12, 100, S, 2
+        // A, 1, 2
+        // B, S, 12, 100
+        let res2 = add_new_order!(ob, 1, "IBM", 12, 100, "S", 2);
+        assert_eq!(
+            res2.0,
+            Some(Response::Acknowledge {
+                user_id: 1,
+                order_id: 2
+            })
+        );
+        assert_eq!(
+            res2.1,
+            Some(Response::Best {
+                side: String::from("S"),
+                price: 12,
+                qty: 100
+            })
+        );
+
+        // N, 2, IBM, 9, 100, B, 101
+        // A, 2, 101
+        let res3 = add_new_order!(ob, 2, "IBM", 9, 100, "B", 101);
+        assert_eq!(
+            res3.0,
+            Some(Response::Acknowledge {
+                user_id: 2,
+                order_id: 101
+            })
+        );
+        assert_eq!(res3.1, None);
+
+        // N, 2, IBM, 11, 100, S, 102
+        // A, 2, 102
+        // B, S, 11, 100
+        let res4 = add_new_order!(ob, 2, "IBM", 11, 100, "S", 102);
+        assert_eq!(
+            res4.0,
+            Some(Response::Acknowledge {
+                user_id: 2,
+                order_id: 102
+            })
+        );
+        assert_eq!(
+            res4.1,
+            Some(Response::Best {
+                side: String::from("S"),
+                price: 11,
+                qty: 100
+            })
+        );
+
+        // # cancel best bid and offer
+        // C, 1, 2
+        // A, 1, 2
+        let res5 = add_new_order!(ob, 1, 2);
+        assert_eq!(
+            res5.0,
+            Some(Response::Acknowledge {
+                user_id: 1,
+                order_id: 2
+            })
+        );
+        assert_eq!(
+            res5.1,
+            None
+        );
+
+        // C, 2, 101
+        // A, 2, 101
+        let res6 = add_new_order!(ob, 2, 101);
+        assert_eq!(
+            res6.0,
+            Some(Response::Acknowledge {
+                user_id: 2,
+                order_id: 101
+            })
+        );
+        assert_eq!(
+            res6.1,
+            None
+        );
+
+        // F
+        let res7 = add_new_order!(ob);
+        assert_eq!(res7, (None, None));
+        assert_eq!(0, ob.asks());
+        assert_eq!(0, ob.bids());
+        assert_eq!("", ob.ticker());
+    }
+
+    #[test]
+    fn test_scenario_11() {
+        // #name: scenario 11
+        // #descr: balanced book, cancel all bids
+        let mut ob = OrderBook::new("IBM", false);
+
+        // # build book, TOB = 10/11
+        // N, 1, IBM, 10, 100, B, 1
+        // A, 1, 1
+        // B, B, 10, 100
+        let res1 = add_new_order!(ob, 1, "IBM", 10, 100, "B", 1);
+        assert_eq!(
+            res1.0,
+            Some(Response::Acknowledge {
+                user_id: 1,
+                order_id: 1
+            })
+        );
+        assert_eq!(
+            res1.1,
+            Some(Response::Best {
+                side: String::from("B"),
+                price: 10,
+                qty: 100
+            })
+        );
+
+        // N, 1, IBM, 12, 100, S, 2
+        // A, 1, 2
+        // B, S, 12, 100
+        let res2 = add_new_order!(ob, 1, "IBM", 12, 100, "S", 2);
+        assert_eq!(
+            res2.0,
+            Some(Response::Acknowledge {
+                user_id: 1,
+                order_id: 2
+            })
+        );
+        assert_eq!(
+            res2.1,
+            Some(Response::Best {
+                side: String::from("S"),
+                price: 12,
+                qty: 100
+            })
+        );
+
+        // N, 2, IBM, 9, 100, B, 101
+        // A, 2, 101
+        let res3 = add_new_order!(ob, 2, "IBM", 9, 100, "B", 101);
+        assert_eq!(
+            res3.0,
+            Some(Response::Acknowledge {
+                user_id: 2,
+                order_id: 101
+            })
+        );
+        assert_eq!(res3.1, None);
+
+        // N, 2, IBM, 11, 100, S, 102
+        // A, 2, 102
+        // B, S, 11, 100
+        let res4 = add_new_order!(ob, 2, "IBM", 11, 100, "S", 102);
+        assert_eq!(
+            res4.0,
+            Some(Response::Acknowledge {
+                user_id: 2,
+                order_id: 102
+            })
+        );
+        assert_eq!(
+            res4.1,
+            Some(Response::Best {
+                side: String::from("S"),
+                price: 11,
+                qty: 100
+            })
+        );
+
+        // # cancel best bid and offer
+        // C, 1, 1
+        // A, 1, 1
+        // B, B, 9, 100
+        let res5 = add_new_order!(ob, 1, 1);
+        assert_eq!(
+            res5.0,
+            Some(Response::Acknowledge {
+                user_id: 1,
+                order_id: 1
+            })
+        );
+        assert_eq!(
+            res5.1,
+            Some(Response::Best {
+                side: String::from("B"),
+                price: 9,
+                qty: 100
+            })
+        );
+
+        // C, 2, 101
+        // A, 2, 101
+        // B, B, -, -
+        let res6 = add_new_order!(ob, 2, 101);
+        assert_eq!(
+            res6.0,
+            Some(Response::Acknowledge {
+                user_id: 2,
+                order_id: 101
+            })
+        );
+        assert_eq!(
+            res6.1,
+            Some(Response::Best {
+                side: String::from("B"),
+                price: 0,
+                qty: 0
+            })
+        );
+
+        // F
+        let res7 = add_new_order!(ob);
+        assert_eq!(res7, (None, None));
+        assert_eq!(0, ob.asks());
+        assert_eq!(0, ob.bids());
+        assert_eq!("", ob.ticker());
+    }
+
+    #[test]
+    fn test_scenario_12() {
+        // #name: scenario 12
+        // #descr: balanced book, TOB volume changes
+        let mut ob = OrderBook::new("IBM", false);
+
+        // # build book, TOB = 10/11
+        // N, 1, IBM, 10, 100, B, 1
+        // A, 1, 1
+        // B, B, 10, 100
+        let res1 = add_new_order!(ob, 1, "IBM", 10, 100, "B", 1);
+        assert_eq!(
+            res1.0,
+            Some(Response::Acknowledge {
+                user_id: 1,
+                order_id: 1
+            })
+        );
+        assert_eq!(
+            res1.1,
+            Some(Response::Best {
+                side: String::from("B"),
+                price: 10,
+                qty: 100
+            })
+        );
+
+        // N, 1, IBM, 12, 100, S, 2
+        // A, 1, 2
+        // B, S, 12, 100
+        let res2 = add_new_order!(ob, 1, "IBM", 12, 100, "S", 2);
+        assert_eq!(
+            res2.0,
+            Some(Response::Acknowledge {
+                user_id: 1,
+                order_id: 2
+            })
+        );
+        assert_eq!(
+            res2.1,
+            Some(Response::Best {
+                side: String::from("S"),
+                price: 12,
+                qty: 100
+            })
+        );
+
+        // N, 2, IBM, 9, 100, B, 101
+        // A, 2, 101
+        let res3 = add_new_order!(ob, 2, "IBM", 9, 100, "B", 101);
+        assert_eq!(
+            res3.0,
+            Some(Response::Acknowledge {
+                user_id: 2,
+                order_id: 101
+            })
+        );
+        assert_eq!(res3.1, None);
+
+        // N, 2, IBM, 11, 100, S, 102
+        // A, 2, 102
+        // B, S, 11, 100
+        let res4 = add_new_order!(ob, 2, "IBM", 11, 100, "S", 102);
+        assert_eq!(
+            res4.0,
+            Some(Response::Acknowledge {
+                user_id: 2,
+                order_id: 102
+            })
+        );
+        assert_eq!(
+            res4.1,
+            Some(Response::Best {
+                side: String::from("S"),
+                price: 11,
+                qty: 100
+            })
+        );
+
+        // # increase and decrease the TOB volume
+        // N, 2, IBM, 11, 100, S, 103
+        // A, 2, 103
+        // B, S, 11, 200
+        let res5 = add_new_order!(ob, 2, "IBM", 11, 100, "S", 103);
+        assert_eq!(
+            res5.0,
+            Some(Response::Acknowledge {
+                user_id: 2,
+                order_id: 103
+            })
+        );
+        assert_eq!(
+            res5.1,
+            Some(Response::Best {
+                side: String::from("S"),
+                price: 11,
+                qty: 200
+            })
+        );
+
+        // C, 2, 103
+        // A, 2, 103
+        // B, S, 11, 100
+        let res6 = add_new_order!(ob, 2, 103);
+        assert_eq!(
+            res6.0,
+            Some(Response::Acknowledge {
+                user_id: 2,
+                order_id: 103
+            })
+        );
+        assert_eq!(
+            res6.1,
+            Some(Response::Best {
+                side: String::from("S"),
+                price: 11,
+                qty: 100
+            })
+        );
+
+        // # cancel all asks
+        // C, 2, 102
+        // A, 2, 102
+        // B, S, 12, 100
+        let res7 = add_new_order!(ob, 2, 102);
+        assert_eq!(
+            res7.0,
+            Some(Response::Acknowledge {
+                user_id: 2,
+                order_id: 102
+            })
+        );
+        assert_eq!(
+            res7.1,
+            Some(Response::Best {
+                side: String::from("S"),
+                price: 12,
+                qty: 100
+            })
+        );
+
+        // C, 1, 2
+        // A, 1, 2
+        // B, S, -, -
+        let res8 = add_new_order!(ob, 1, 2);
+        assert_eq!(
+            res8.0,
+            Some(Response::Acknowledge {
+                user_id: 1,
+                order_id: 2
+            })
+        );
+        assert_eq!(
+            res8.1,
+            Some(Response::Best {
+                side: String::from("S"),
+                price: 0,
+                qty: 0
+            })
+        );
+
+        // F
+        let res9 = add_new_order!(ob);
+        assert_eq!(res9, (None, None));
+        assert_eq!(0, ob.asks());
+        assert_eq!(0, ob.bids());
+        assert_eq!("", ob.ticker());
+    }
+
+    #[test]
     fn test_scenario_13() {
         // #name: scenario 5
         // #descr: balanced book, limit above best ask
@@ -1764,6 +2179,118 @@ mod tests {
                 seller_id: 1,
                 seller_order_id: 2,
                 price: 12,
+                qty: 100
+            })
+        );
+
+        // F
+        let res6 = add_new_order!(ob);
+        assert_eq!(res6, (None, None));
+        assert_eq!(0, ob.asks());
+        assert_eq!(0, ob.bids());
+        assert_eq!("", ob.ticker());
+    }
+
+    #[test]
+    fn test_scenario_14() {
+        // #name: scenario 3
+        // #descr: shallow ask
+        let mut ob = OrderBook::new("VAL", true);
+
+        // # build book, shallow ask, TOB = 10/11
+        // N, 1, VAL, 10, 100, B, 1
+        // A, 1, 1
+        // B, B, 10, 100
+        let res1 = add_new_order!(ob, 1, "VAL", 10, 100, "B", 1);
+        assert_eq!(
+            res1.0,
+            Some(Response::Acknowledge {
+                user_id: 1,
+                order_id: 1
+            })
+        );
+        assert_eq!(
+            res1.1,
+            Some(Response::Best {
+                side: String::from("B"),
+                price: 10,
+                qty: 100
+            })
+        );
+
+        // N, 2, VAL, 9, 100, B, 101
+        // A, 2, 101
+        let res2 = add_new_order!(ob, 2, "VAL", 9, 100, "B", 101);
+        assert_eq!(
+            res2.0,
+            Some(Response::Acknowledge {
+                user_id: 2,
+                order_id: 101
+            })
+        );
+        assert_eq!(res2.1, None);
+
+        // N, 2, VAL, 11, 100, S, 102
+        // A, 2, 102
+        // B, S, 11, 100
+        let res3 = add_new_order!(ob, 2, "VAL", 11, 100, "S", 102);
+        assert_eq!(
+            res3.0,
+            Some(Response::Acknowledge {
+                user_id: 2,
+                order_id: 102
+            })
+        );
+        assert_eq!(
+            res3.1,
+            Some(Response::Best {
+                side: String::from("S"),
+                price: 11,
+                qty: 100
+            })
+        );
+
+        // # hit ask, generate reject
+        // N, 1, VAL, 11, 100, B, 2
+        // R, 1, 2
+        // T, 1, 2, 2, 102, 11, 100
+        let res4 = add_new_order!(ob, 1, "VAL", 11, 100, "B", 2);
+        assert_eq!(
+            res4.0,
+            Some(Response::Acknowledge {
+                user_id: 1,
+                order_id: 2
+            })
+        );
+        assert_eq!(
+            res4.1,
+            Some(Response::Trade {
+                buyer_id: 1,
+                buyer_order_id: 2,
+                seller_id: 2,
+                seller_order_id: 102,
+                price: 11,
+                qty: 100
+            })
+        );
+
+        // # increase volume to Ask TOB 10, 200
+        // N, 2, VAL, 11, 100, S, 103
+        // A, 2, 103
+        // B, S, 11, 100
+        let res5 = add_new_order!(ob, 2, "VAL", 11, 100, "S", 103);
+        assert_eq!(
+            res5.0,
+            Some(Response::Acknowledge {
+                user_id: 2,
+                order_id: 103
+            })
+        );
+        assert_eq!(
+            res5.1,
+            Some(Response::Best {
+                side: String::from("S"),
+                price: 11,
                 qty: 100
             })
         );
