@@ -77,7 +77,13 @@ async fn show_results(resp: &mut Arc<Mutex<Vec<(Option<Response>, Option<Respons
     println!("Results");
     while let Ok(v) = resp.lock().as_mut() {
         if v.len() > 0 {
-            println!("{:?}", v.remove(0));
+            let (res1, res2) = v.remove(0);
+            match (res1, res2) {
+                (Some(res1), Some(res2)) => println!("{}\n{}", res1, res2),
+                (Some(res1), None) => println!("{}", res1),
+                (_, _) => (),
+            }
+
         }
     }
 }

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Error};
+use std::{collections::HashMap, fmt::{Error, Display, Formatter}};
 
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
@@ -40,7 +40,25 @@ pub enum Response {
         price: u32,
         qty: u32,
     },
-    Nil,
+}
+
+impl Display for Response {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match self {
+            Response::Acknowledge{user_id, order_id} => {
+                write!(f, "A, {}, {}", user_id, order_id)
+            },
+            Response::Best { side, price, qty } => {
+                write!(f, "B, {}, {}, {}", side, if *price == 0 { String::from("-") } else {price.to_string()}, if *qty == 0 {String::from("-")} else {qty.to_string()})
+            },
+            Response::Reject { user_id, order_id } => {
+                write!(f, "R, {}, {}", user_id, order_id)
+            },
+            Response::Trade { buyer_id, buyer_order_id, seller_id, seller_order_id, price, qty } => {
+                write!(f, "T, {}, {}, {}, {}, {}, {}", buyer_id, buyer_order_id, seller_id, seller_order_id, price, qty)
+            }
+        }
+    }
 }
 
 pub enum UserAction {
