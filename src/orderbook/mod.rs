@@ -1,4 +1,7 @@
-use std::{collections::HashMap, fmt::{Display, Formatter}};
+use std::{
+    collections::HashMap,
+    fmt::{Display, Formatter},
+};
 
 /// This mod implements an orders book inner functionaity.
 ///
@@ -20,11 +23,19 @@ pub(super) enum Side {
 
 impl Side {
     /// Provides a way to get a [Side] from a [String]
-    pub fn new(s: String) -> Self {
+    pub(super) fn new(s: String) -> Self {
         if s.starts_with('B') {
             Self::Buy
         } else {
             Self::Sell
+        }
+    }
+
+    /// Returns one letter string used at output
+    pub(super) fn get_one_letter_string(&self) -> String {
+        match self {
+            Self::Buy => "B".to_string(),
+            Self::Sell => "S".to_string(),
         }
     }
 }
@@ -37,22 +48,12 @@ impl Side {
 /// data format.
 pub enum Response {
     /// This variant of [Response] enum is used to acknowledge a calid [UserAction]
-    Acknowledge {
-        user_id: u32,
-        order_id: u32,
-    },
+    Acknowledge { user_id: u32, order_id: u32 },
     /// This variant of [Response] enum is used show the Top of Book has modified and
     /// there is a new Best
-    Best {
-        side: String,
-        price: u32,
-        qty: u32,
-    },
+    Best { side: String, price: u32, qty: u32 },
     /// This variant of [Response] enum is used to reject a bad [UserAction]
-    Reject {
-        user_id: u32,
-        order_id: u32,
-    },
+    Reject { user_id: u32, order_id: u32 },
     /// This variant of [Response] enum signals there is a match of prices that produced
     /// a trade
     Trade {
@@ -69,17 +70,42 @@ impl Display for Response {
     /// Implement the Display trait to easily print desired output format
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
-            Response::Acknowledge{user_id, order_id} => {
+            Response::Acknowledge { user_id, order_id } => {
                 write!(f, "A, {}, {}", user_id, order_id)
-            },
+            }
             Response::Best { side, price, qty } => {
-                write!(f, "B, {}, {}, {}", side, if *price == 0 { String::from("-") } else {price.to_string()}, if *qty == 0 {String::from("-")} else {qty.to_string()})
-            },
+                write!(
+                    f,
+                    "B, {}, {}, {}",
+                    side,
+                    if *price == 0 {
+                        String::from("-")
+                    } else {
+                        price.to_string()
+                    },
+                    if *qty == 0 {
+                        String::from("-")
+                    } else {
+                        qty.to_string()
+                    }
+                )
+            }
             Response::Reject { user_id, order_id } => {
                 write!(f, "R, {}, {}", user_id, order_id)
-            },
-            Response::Trade { buyer_id, buyer_order_id, seller_id, seller_order_id, price, qty } => {
-                write!(f, "T, {}, {}, {}, {}, {}, {}", buyer_id, buyer_order_id, seller_id, seller_order_id, price, qty)
+            }
+            Response::Trade {
+                buyer_id,
+                buyer_order_id,
+                seller_id,
+                seller_order_id,
+                price,
+                qty,
+            } => {
+                write!(
+                    f,
+                    "T, {}, {}, {}, {}, {}, {}",
+                    buyer_id, buyer_order_id, seller_id, seller_order_id, price, qty
+                )
             }
         }
     }
@@ -101,10 +127,7 @@ pub enum UserAction {
         order_id: u32,
     },
     /// This enum variant describes a cancel order from an user
-    CancelOrder {
-        user_id: u32,
-        order_id: u32,
-    },
+    CancelOrder { user_id: u32, order_id: u32 },
     /// This enum variant describes a flush command that instructs the [OrderBook]
     /// to reset.
     Flush,
@@ -299,139 +322,271 @@ impl OrderBook {
         self.asks.len()
     }
 
-    /// Private method that tries to insert a new order
-    fn new_order(&mut self, side: Side, order: Order) -> (Option<Response>, Option<Response>) {
+    /// Private method that tries to insert a new sell order
+    fn new_sell_order(&mut self, order: Order) -> (Option<Response>, Option<Response>) {
         let mut res = (None, None);
         let price = order.price();
 
-        match side {
-            Side::Buy => {
-                let entry = self.bids.entry(order.price()).or_insert_with(Vec::new);
+        let entry = self.asks.entry(order.price()).or_insert(vec![]);
 
-                if price >= self.min_ask && !self.asks.is_empty() {
-                    if self.trade_active {
-                        // Check if corresponding order in asks and can trade
-                        if let Some(val) = self.asks.get_mut(&order.price()) {
-                            match val.iter().enumerate().find_map(|(k, o)| {
-                                if o.qty() == order.qty() {
-                                    Some(k)
-                                } else {
-                                    None
-                                }
-                            }) {
-                                Some(k) => {
-                                    let ack = order.ack();
-                                    let trade = Trade::new(order, val.remove(k));
-                                    let trade_resp = trade.get_trade_response();
-
-                                    self.trades.push(trade);
-                                    if val.is_empty() {
-                                        self.asks.remove_entry(&price);
-                                    }
-                                    res = (Some(ack), Some(trade_resp));
-                                }
-                                None => {
-                                    res = (Some(order.reject()), None);
-                                }
-                            }
+        if price <= self.max_bid && !self.bids.is_empty() {
+            // Check if corresponding order in asks and can trade
+            if self.trade_active {
+                if let Some(val) = self.bids.get_mut(&order.price()) {
+                    match val.iter().enumerate().find_map(|(k, o)| {
+                        if o.qty() == order.qty() {
+                            Some(k)
+                        } else {
+                            None
                         }
-                    } else {
-                        res = (Some(order.reject()), None);
+                    }) {
+                        Some(k) => {
+                            let ack = order.ack();
+                            let trade = Trade::new(val.remove(k), order);
+                            let trade_resp = trade.get_trade_response();
+
+                            self.trades.push(trade);
+                            if val.len() == 0 {
+                                self.bids.remove_entry(&price);
+                            }
+                            res = (Some(ack), Some(trade_resp));
+                        }
+                        None => {
+                            res = (Some(order.reject()), None);
+                        }
                     }
-                } else if price >= self.max_bid || self.max_bid == 0 {
-                    // if none of the above check if best bid and
-                    let ack = order.ack();
-                    self.max_bid = price;
-                    entry.push(order);
-                    res = (
-                        Some(ack),
-                        Some(entry.iter().fold(
-                            Response::Best {
-                                side: String::from("B"),
-                                price: 0,
-                                qty: 0,
-                            },
-                            |acc, o| match acc {
-                                Response::Best { side, price: _, qty } => Response::Best {
-                                    side,
-                                    price: o.price(),
-                                    qty: qty + o.qty(),
-                                },
-                                _ => acc,
-                            },
-                        )),
-                    );
-                } else {
-                    // if none of the above matches, ack order
-                    res = (Some(order.ack()), None);
-                    entry.push(order);
                 }
+            } else {
+                res = (Some(order.reject()), None);
             }
-            Side::Sell => {
-                let entry = self.asks.entry(order.price()).or_insert(vec![]);
+        } else if price <= self.min_ask || self.min_ask == 0 {
+            let ack = order.ack();
+            // if none of the above check if best bid
+            self.min_ask = price;
+            entry.push(order);
+            res = (
+                Some(ack),
+                Some(entry.iter().fold(
+                    Response::Best {
+                        side: String::from("S"),
+                        price: 0,
+                        qty: 0,
+                    },
+                    |acc, o| match acc {
+                        Response::Best {
+                            side,
+                            price: _,
+                            qty,
+                        } => Response::Best {
+                            side,
+                            price: o.price(),
+                            qty: qty + o.qty(),
+                        },
+                        _ => acc,
+                    },
+                )),
+            );
+        } else {
+            // if none of the above matches, ack order
+            res = (Some(order.ack()), None);
+            entry.push(order);
+        }
 
-                if price <= self.max_bid && !self.bids.is_empty() {
-                    // Check if corresponding order in asks and can trade
-                    if self.trade_active {
-                        if let Some(val) = self.bids.get_mut(&order.price()) {
-                            match val.iter().enumerate().find_map(|(k, o)| {
-                                if o.qty() == order.qty() {
-                                    Some(k)
-                                } else {
-                                    None
-                                }
-                            }) {
-                                Some(k) => {
-                                    let ack = order.ack();
-                                    let trade = Trade::new(val.remove(k), order);
-                                    let trade_resp = trade.get_trade_response();
+        res
+    }
 
-                                    self.trades.push(trade);
-                                    if val.len() == 0 {
-                                        self.bids.remove_entry(&price);
-                                    }
-                                    res = (Some(ack), Some(trade_resp));
-                                }
-                                None => {
-                                    res = (Some(order.reject()), None);
-                                }
-                            }
+    /// Private method that tries to insert a new buy order
+    fn new_buy_order(&mut self, order: Order) -> (Option<Response>, Option<Response>) {
+        let mut res = (None, None);
+        let price = order.price();
+
+        let entry = self.bids.entry(order.price()).or_insert_with(Vec::new);
+
+        if price >= self.min_ask && !self.asks.is_empty() {
+            if self.trade_active {
+                // Check if corresponding order in asks and can trade
+                if let Some(val) = self.asks.get_mut(&order.price()) {
+                    match val.iter().enumerate().find_map(|(k, o)| {
+                        if o.qty() == order.qty() {
+                            Some(k)
+                        } else {
+                            None
                         }
-                    } else {
-                        res = (Some(order.reject()), None);
+                    }) {
+                        Some(k) => {
+                            let ack = order.ack();
+                            let trade = Trade::new(order, val.remove(k));
+                            let trade_resp = trade.get_trade_response();
+
+                            self.trades.push(trade);
+                            if val.is_empty() {
+                                self.asks.remove_entry(&price);
+                            }
+                            res = (Some(ack), Some(trade_resp));
+                        }
+                        None => {
+                            res = (Some(order.reject()), None);
+                        }
                     }
-                } else if price <= self.min_ask || self.min_ask == 0 {
-                    let ack = order.ack();
-                    // if none of the above check if best bid
-                    self.min_ask = price;
-                    entry.push(order);
-                    res = (
-                        Some(ack),
-                        Some(entry.iter().fold(
-                            Response::Best {
-                                side: String::from("S"),
-                                price: 0,
-                                qty: 0,
-                            },
-                            |acc, o| match acc {
-                                Response::Best { side, price: _, qty } => Response::Best {
-                                    side,
-                                    price: o.price(),
-                                    qty: qty + o.qty(),
-                                },
-                                _ => acc,
-                            },
-                        )),
-                    );
-                } else {
-                    // if none of the above matches, ack order
-                    res = (Some(order.ack()), None);
-                    entry.push(order);
                 }
+            } else {
+                res = (Some(order.reject()), None);
+            }
+        } else if price >= self.max_bid || self.max_bid == 0 {
+            // if none of the above check if best bid and
+            let ack = order.ack();
+            self.max_bid = price;
+            entry.push(order);
+            res = (
+                Some(ack),
+                Some(entry.iter().fold(
+                    Response::Best {
+                        side: String::from("B"),
+                        price: 0,
+                        qty: 0,
+                    },
+                    |acc, o| match acc {
+                        Response::Best {
+                            side,
+                            price: _,
+                            qty,
+                        } => Response::Best {
+                            side,
+                            price: o.price(),
+                            qty: qty + o.qty(),
+                        },
+                        _ => acc,
+                    },
+                )),
+            );
+        } else {
+            // if none of the above matches, ack order
+            res = (Some(order.ack()), None);
+            entry.push(order);
+        }
+
+        res
+    }
+
+    /// Private method that tries to insert a new order
+    fn new_order(&mut self, side: Side, order: Order) -> (Option<Response>, Option<Response>) {
+        match side {
+            Side::Buy => self.new_buy_order(order),
+            Side::Sell => self.new_sell_order(order),
+        }
+    }
+
+    /// Search for Order in HashMap
+    fn get_order_index(
+        col: &HashMap<u32, Vec<Order>>,
+        user_id: u32,
+        order_id: u32,
+    ) -> Option<(u32, usize)> {
+        let mut res = None;
+
+        // Search for the order in bids HashMap
+        for (k, v) in col.iter() {
+            // Call find for each price list of Orders to get the index in Vec
+            let x_in_v = v.iter().enumerate().find_map(|(k, val)| {
+                if val.user_id == user_id && val.order_id == order_id {
+                    Some(k)
+                } else {
+                    None
+                }
+            });
+
+            // If there is a valid index -> break
+            if let Some(idx) = x_in_v {
+                res = Some((*k, idx));
+                break;
             }
         }
 
         res
+    }
+
+    /// This private method runs the logic to cancel orders
+    fn cancel_order_logic(
+        col: &mut HashMap<u32, Vec<Order>>,
+        side: Side,
+        user_id: u32,
+        order_id: u32,
+        best: &mut u32,
+    ) -> (Option<Response>, Option<Response>) {
+        let res;
+        let found;
+        let (price, order_idx) = match Self::get_order_index(col, user_id, order_id) {
+            Some((x, y)) => {
+                found = true;
+                (x, y)
+            }
+            None => {
+                found = false;
+                (0, 0)
+            }
+        };
+
+        // If the order was found in the asks eliminate it
+        if found {
+            // Get mutable reference to containing vec
+            let v = col.get_mut(&price).unwrap();
+
+            // Check if it is the only order -> eliminate the whole entry
+            if v.len() == 1 {
+                // Remove price entry from HashMap since it will be empty afterwards
+                col.remove_entry(&price);
+
+                // it means afterwards we will have a new min_ask
+                if price == *best {
+                    // find new best
+                    let new_best = match side {
+                        Side::Buy => col.keys().max(),
+                        Side::Sell => col.keys().min(),
+                    };
+
+                    match new_best {
+                        // if new best -> return (Ack, Best(Side, best, qty))
+                        Some(k) => {
+                            *best = *k;
+                            res = (
+                                Some(Response::Acknowledge { user_id, order_id }),
+                                Some(col.get_key_value(k).unwrap().1[0].best(side)),
+                            );
+                        }
+                        // if new best -> return (Ack, Best(Side, 0, 0))
+                        None => {
+                            *best = 0;
+                            res = (
+                                Some(Response::Acknowledge { user_id, order_id }),
+                                Some(Response::Best {
+                                    side: side.get_one_letter_string(),
+                                    price: 0,
+                                    qty: 0,
+                                }),
+                            );
+                        }
+                    };
+                }
+                // In case the order is beneath best
+                else {
+                    res = (Some(Response::Acknowledge { user_id, order_id }), None);
+                }
+            } else {
+                // if one of best orders is canceled -> show best
+                v.remove(order_idx);
+                if price == *best {
+                    res = (
+                        Some(Response::Acknowledge { user_id, order_id }),
+                        Some(col.get_key_value(&price).unwrap().1[0].best(side)),
+                    );
+                } else {
+                    res = (Some(Response::Acknowledge { user_id, order_id }), None);
+                }
+            }
+            res
+        } else {
+            (Some(Response::Reject { user_id, order_id }), None)
+        }
     }
 
     /// Private method that tries to cancel an order
@@ -440,110 +595,29 @@ impl OrderBook {
         user_id: u32,
         order_id: u32,
     ) -> (Option<Response>, Option<Response>) {
-        let mut res = (Some(Response::Acknowledge { user_id, order_id }), None);
-        let mut found = false;
-        let (mut price, mut order_idx) = (0u32, 0usize);
-
-        for (k, v) in self.asks.iter_mut() {
-            let x_in_v = v.iter().enumerate().find_map(|(k, val)| {
-                if val.user_id == user_id && val.order_id == order_id {
-                    Some(k)
-                } else {
-                    None
-                }
-            });
-            if let Some(idx) = x_in_v {
-                price = *k;
-                order_idx = idx;
-                found = true;
-                break;
+        // Try cancelling from asks
+        let res = Self::cancel_order_logic(
+            &mut self.asks,
+            Side::Sell,
+            user_id,
+            order_id,
+            &mut self.min_ask,
+        );
+        match res {
+            // if we get two responses (Ack, Best) -> means it is canceled and new best
+            (Some(a), Some(b)) => (Some(a), Some(b)),
+            // if we get one response (Ack, None) -> order cancelled
+            (Some(Response::Acknowledge { user_id, order_id }), None) => {
+                (Some(Response::Acknowledge { user_id, order_id }), None)
             }
-        }
-
-        if found {
-            let v = self.asks.get_mut(&price).unwrap();
-
-            if v.len() == 1 {
-                self.asks.remove_entry(&price);
-                if price == self.min_ask {
-                    match self.asks.keys().min() {
-                        Some(k) => {
-                            self.min_ask = *k;
-                            res = (
-                                Some(Response::Acknowledge { user_id, order_id }),
-                                Some(self.asks.get_key_value(k).unwrap().1[0].best(Side::Sell)),
-                            );
-                        }
-                        None => {
-                            self.min_ask = 0;
-                            res = (
-                                Some(Response::Acknowledge { user_id, order_id }),
-                                Some(Response::Best{side: String::from("S"), price: 0, qty: 0}),
-                            );
-                        }
-                    };
-                }
-            } else {
-                // if one of best asks is canceled -> show best
-                v.remove(order_idx);
-                res = (
-                    Some(Response::Acknowledge { user_id, order_id }),
-                    Some(self.asks.get_key_value(&price).unwrap().1[0].best(Side::Sell)),
-                );
-            }
-            res
-        } else {
-            for (k, v) in self.bids.iter_mut() {
-                let x_in_v = v.iter().enumerate().find_map(|(k, val)| {
-                    if val.user_id == user_id && val.order_id == order_id {
-                        Some(k)
-                    } else {
-                        None
-                    }
-                });
-                if let Some(idx) = x_in_v {
-                    price = *k;
-                    order_idx = idx;
-                    found = true;
-                    break;
-                }
-            }
-
-            if found {
-                let v = self.bids.get_mut(&price).unwrap();
-
-                if v.len() == 1 {
-                    self.bids.remove_entry(&price);
-                    if price == self.max_bid {
-                        match self.bids.keys().max() {
-                            Some(k) => {
-                                self.max_bid = *k;
-                                res = (
-                                    Some(Response::Acknowledge { user_id, order_id }),
-                                    Some(self.bids.get_key_value(k).unwrap().1[0].best(Side::Buy)),
-                                );
-                            }
-                            None => {
-                                self.max_bid = 0;
-                                res = (
-                                    Some(Response::Acknowledge { user_id, order_id }),
-                                    Some(Response::Best{side: String::from("B"), price: 0, qty: 0}),
-                                );
-                            }
-                        }
-                    }
-                } else {
-                    // if one of best bids is canceled -> show best
-                    v.remove(order_idx);
-                    res = (
-                        Some(Response::Acknowledge { user_id, order_id }),
-                        Some(self.bids.get_key_value(&price).unwrap().1[0].best(Side::Buy)),
-                    );
-                }
-            } else {
-                res = (Some(Response::Reject { user_id, order_id }), None)
-            }
-            res
+            // for any other response it means the order is not found -> search in bids
+            (_, _) => Self::cancel_order_logic(
+                &mut self.bids,
+                Side::Buy,
+                user_id,
+                order_id,
+                &mut self.max_bid,
+            ),
         }
     }
 
@@ -710,7 +784,6 @@ mod tests {
             order_id: 1,
         });
 
-        println!("{:?}", ob);
         assert_eq!("TSLA", ob.ticker());
         assert_eq!(
             res1.0,
@@ -1860,10 +1933,7 @@ mod tests {
                 order_id: 2
             })
         );
-        assert_eq!(
-            res5.1,
-            None
-        );
+        assert_eq!(res5.1, None);
 
         // C, 2, 101
         // A, 2, 101
@@ -1875,10 +1945,7 @@ mod tests {
                 order_id: 101
             })
         );
-        assert_eq!(
-            res6.1,
-            None
-        );
+        assert_eq!(res6.1, None);
 
         // F
         let res7 = add_new_order!(ob);

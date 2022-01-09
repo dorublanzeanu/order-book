@@ -78,7 +78,6 @@ async fn show_results(resp: &mut Arc<Mutex<Vec<(Option<Response>, Option<Respons
                 (Some(res1), None) => println!("{}", res1),
                 (_, _) => (),
             }
-
         }
     }
 }
