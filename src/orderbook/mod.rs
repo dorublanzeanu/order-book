@@ -1,13 +1,25 @@
 use std::{collections::HashMap, fmt::{Error, Display, Formatter}};
 
+/// This mod implements an orders book inner functionaity.
+///
+/// Provides an abstraction over two [HashMap]s that hold the orders
+/// per each price.
+///
+
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
+/// This enum is an internal mod enum that describes the direction
+/// of an order.
+///
+/// This enum is used internally to select between logic applied to
+/// sell and buy orders.
 pub(super) enum Side {
     Buy,
     Sell,
 }
 
 impl Side {
+    /// Provides a way to get a [Side] from a [String]
     pub fn new(s: String) -> Self {
         if s.starts_with("B") {
             Self::Buy
@@ -18,20 +30,31 @@ impl Side {
 }
 
 #[derive(Debug, PartialEq)]
+/// This enum is a public enum that describes result of a [UserAction]
+/// on the [OrderBook]
+///
+/// This enum's most important role is to abstract the output's needed
+/// data format.
 pub enum Response {
+    /// This variant of [Response] enum is used to acknowledge a calid [UserAction]
     Acknowledge {
         user_id: u32,
         order_id: u32,
     },
+    /// This variant of [Response] enum is used show the Top of Book has modified and
+    /// there is a new Best
     Best {
         side: String,
         price: u32,
         qty: u32,
     },
+    /// This variant of [Response] enum is used to reject a bad [UserAction]
     Reject {
         user_id: u32,
         order_id: u32,
     },
+    /// This variant of [Response] enum signals there is a match of prices that produced
+    /// a trade
     Trade {
         buyer_id: u32,
         buyer_order_id: u32,
@@ -43,6 +66,7 @@ pub enum Response {
 }
 
 impl Display for Response {
+    /// Implement the Display trait to easily print desired output format
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         match self {
             Response::Acknowledge{user_id, order_id} => {
@@ -61,7 +85,13 @@ impl Display for Response {
     }
 }
 
+/// This enum is a public enum that describes the possible [UserAction]s
+/// on the [OrderBook]
+///
+/// This enum's most important role is to represent the input in a format
+/// that the [OrderBook] can understand.
 pub enum UserAction {
+    /// This enum variant describes a new order that comes from an user
     NewOrder {
         user_id: u32,
         symbol: String,
@@ -70,14 +100,22 @@ pub enum UserAction {
         side: String,
         order_id: u32,
     },
+    /// This enum variant describes a cancel order from an user
     CancelOrder {
         user_id: u32,
         order_id: u32,
     },
+    /// This enum variant describes a flush command that instructs the [OrderBook]
+    /// to reset.
     Flush,
 }
 
 #[derive(Debug)]
+/// This struct is a private struct used to represent an open [Order]
+/// in the [OrderBook] asks/bids.
+///
+/// This struct holds a part of the order info because the reset of them,
+/// such as [Side] is derived from the implementation
 pub(super) struct Order {
     user_id: u32,
     price: u32,
@@ -86,6 +124,7 @@ pub(super) struct Order {
 }
 
 impl Order {
+    /// Function to create an [Order] from raw data
     pub(super) fn new(user_id: u32, price: u32, qty: u32, order_id: u32) -> Self {
         Order {
             user_id,
@@ -95,14 +134,19 @@ impl Order {
         }
     }
 
+    /// Price getter
     pub(super) fn price(&self) -> u32 {
         self.price
     }
 
+    /// Quantity geter
     pub(super) fn qty(&self) -> u32 {
         self.qty
     }
 
+    /// Gets a [Response::Best] from the order which
+    /// is returned to the user to signal that this order
+    /// is Best of the Book
     pub(super) fn best(&self, side: Side) -> Response {
         Response::Best {
             side: match side {
@@ -114,6 +158,9 @@ impl Order {
         }
     }
 
+    /// Gets a [Response::Acknowledge] from the order which
+    /// is returned to the user to signal that this order
+    /// was received
     pub(super) fn ack(&self) -> Response {
         Response::Acknowledge {
             user_id: self.user_id,
@@ -121,6 +168,9 @@ impl Order {
         }
     }
 
+    /// Gets a [Response::Acknowledge] from the order which
+    /// is returned to the user to signal that this order
+    /// was rejected
     pub(super) fn reject(&self) -> Response {
         Response::Reject {
             user_id: self.user_id,
@@ -131,7 +181,7 @@ impl Order {
 
 #[derive(Debug)]
 /// Struct to keep records of trades
-/// This struct is used only when a trade was made
+/// This struct is used only when a trade is made
 pub(super) struct Trade {
     buyer_id: u32,
     seller_id: u32,
@@ -142,7 +192,7 @@ pub(super) struct Trade {
 }
 
 impl Trade {
-    /// Creates a Trade from two `Order`s
+    /// Creates a Trade from two [Order]s by consuming the [Order]s
     pub(super) fn new(o1: Order, o2: Order) -> Self {
         Trade {
             buyer_id: o1.user_id,
@@ -154,6 +204,8 @@ impl Trade {
         }
     }
 
+    /// Creates a [Response::Trade] to send to the user to signal the
+    /// trade
     pub(super) fn get_trade_response(&self) -> Response {
         Response::Trade {
             buyer_id: self.buyer_id,
@@ -167,17 +219,56 @@ impl Trade {
 }
 
 #[derive(Debug)]
+/// This struct provides the needed functionality to create,
+/// interact with an [OrderBook]
+///
+/// It hold information suchh as ask/bid [Order]s, trades, ticker.
+///
+/// # Examples
+///
+/// ```
+/// use orderbook::{OrderBook, UserAction};
+/// // Creates OrderBook - with Trading disabled
+/// let mut ob = OrderBook::new("IBM", false);
+///
+/// // Add new Order
+/// let response = ob.new_user_action(UserAction::NewOrder{
+///     user_id: 1,
+///     symbol: "IBM",
+///     price: 10,
+///     qty: 100,
+///     side: "B",
+///     order_id: 1,
+/// });
+/// assert_eq!(
+///     response.0,
+///     Some(Response::Acknowledge{user_id: 1, order_id: 1}
+/// ));
+/// assert_eq!(
+///     response.1,
+///     Some(Response::Best{side: "B".to_string(), user_id: 1, order_id: 1}
+/// ));
+/// ```
+///
 pub struct OrderBook {
+    /// Maximum bid
     max_bid: u32,
+    /// Minimum ask
     min_ask: u32,
+    /// OrderBook's ticker for which holds orders
     ticker: String,
+    /// [HashMap] with ask orders
     asks: HashMap<u32, Vec<Order>>,
+    /// [HashMap] with bid orders
     bids: HashMap<u32, Vec<Order>>,
+    /// [Vec] of [Trades] - this is empty if `trade_active` is `false`
     trades: Vec<Trade>,
+    /// Enables trading functionality
     trade_active: bool,
 }
 
 impl OrderBook {
+    /// Creates a new empty [OrderBook]
     pub fn new(ticker: &str, trade_active: bool) -> Self {
         OrderBook {
             max_bid: 0,
@@ -190,18 +281,22 @@ impl OrderBook {
         }
     }
 
+    /// Ticker getter
     pub fn ticker(&self) -> &str {
         self.ticker.as_str()
     }
 
+    /// Returns number of current bids
     pub fn bids(&self) -> usize {
         self.bids.len()
     }
 
+    /// Returns number of current asks
     pub fn asks(&self) -> usize {
         self.asks.len()
     }
 
+    /// Private method that tries to insert a new order
     fn new_order(&mut self, side: Side, order: Order) -> (Option<Response>, Option<Response>) {
         let mut res = (None, None);
         let price = order.price();
@@ -336,6 +431,7 @@ impl OrderBook {
         res
     }
 
+    /// Private method that tries to cancel an order
     fn cancel_order(
         &mut self,
         user_id: u32,
@@ -448,6 +544,7 @@ impl OrderBook {
         }
     }
 
+    /// Private method that flushes the [OrderBook]
     fn flush(&mut self) {
         self.max_bid = 0;
         self.min_ask = 0;
@@ -456,6 +553,10 @@ impl OrderBook {
         self.bids.clear();
     }
 
+    /// Public method used to interract with the [OrderBook]
+    ///
+    /// This method translates the [UserAction] received as parameter
+    /// to a suitable input dependng on the type of [UserAction]
     pub fn new_user_action(&mut self, action: UserAction) -> (Option<Response>, Option<Response>) {
         match action {
             UserAction::NewOrder {
