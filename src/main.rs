@@ -1,5 +1,5 @@
 mod orderbook;
-use orderbook::{Order, OrderBook, Response, UserAction};
+use orderbook::{OrderBook, Response, UserAction};
 
 use std::collections::HashMap;
 use std::fs::File;

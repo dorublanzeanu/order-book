@@ -2,7 +2,7 @@ use std::{collections::HashMap, fmt::{Error, Display, Formatter}};
 
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
-enum Side {
+pub(super) enum Side {
     Buy,
     Sell,
 }
@@ -78,7 +78,7 @@ pub enum UserAction {
 }
 
 #[derive(Debug)]
-pub struct Order {
+pub(super) struct Order {
     user_id: u32,
     price: u32,
     qty: u32,
@@ -86,7 +86,7 @@ pub struct Order {
 }
 
 impl Order {
-    pub fn new(user_id: u32, price: u32, qty: u32, order_id: u32) -> Self {
+    pub(super) fn new(user_id: u32, price: u32, qty: u32, order_id: u32) -> Self {
         Order {
             user_id,
             price,
@@ -95,15 +95,15 @@ impl Order {
         }
     }
 
-    pub fn price(&self) -> u32 {
+    pub(super) fn price(&self) -> u32 {
         self.price
     }
 
-    pub fn qty(&self) -> u32 {
+    pub(super) fn qty(&self) -> u32 {
         self.qty
     }
 
-    pub fn best(&self, side: Side) -> Response {
+    pub(super) fn best(&self, side: Side) -> Response {
         Response::Best {
             side: match side {
                 Side::Buy => String::from("B"),
@@ -114,14 +114,14 @@ impl Order {
         }
     }
 
-    pub fn ack(&self) -> Response {
+    pub(super) fn ack(&self) -> Response {
         Response::Acknowledge {
             user_id: self.user_id,
             order_id: self.order_id,
         }
     }
 
-    pub fn reject(&self) -> Response {
+    pub(super) fn reject(&self) -> Response {
         Response::Reject {
             user_id: self.user_id,
             order_id: self.order_id,
@@ -132,7 +132,7 @@ impl Order {
 #[derive(Debug)]
 /// Struct to keep records of trades
 /// This struct is used only when a trade was made
-pub struct Trade {
+pub(super) struct Trade {
     buyer_id: u32,
     seller_id: u32,
     buyer_order_id: u32,
@@ -143,7 +143,7 @@ pub struct Trade {
 
 impl Trade {
     /// Creates a Trade from two `Order`s
-    pub fn new(o1: Order, o2: Order) -> Self {
+    pub(super) fn new(o1: Order, o2: Order) -> Self {
         Trade {
             buyer_id: o1.user_id,
             seller_id: o2.user_id,
@@ -154,7 +154,7 @@ impl Trade {
         }
     }
 
-    pub fn get_trade_response(&self) -> Response {
+    pub(super) fn get_trade_response(&self) -> Response {
         Response::Trade {
             buyer_id: self.buyer_id,
             buyer_order_id: self.buyer_order_id,
