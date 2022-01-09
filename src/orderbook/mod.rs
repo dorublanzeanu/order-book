@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::{Error, Display, Formatter}};
+use std::{collections::HashMap, fmt::{Display, Formatter}};
 
 /// This mod implements an orders book inner functionaity.
 ///
@@ -21,7 +21,7 @@ pub(super) enum Side {
 impl Side {
     /// Provides a way to get a [Side] from a [String]
     pub fn new(s: String) -> Self {
-        if s.starts_with("B") {
+        if s.starts_with('B') {
             Self::Buy
         } else {
             Self::Sell
@@ -277,20 +277,23 @@ impl OrderBook {
             asks: HashMap::new(),
             bids: HashMap::new(),
             trades: vec![],
-            trade_active: trade_active,
+            trade_active,
         }
     }
 
+    #[allow(dead_code)]
     /// Ticker getter
     pub fn ticker(&self) -> &str {
         self.ticker.as_str()
     }
 
+    #[allow(dead_code)]
     /// Returns number of current bids
     pub fn bids(&self) -> usize {
         self.bids.len()
     }
 
+    #[allow(dead_code)]
     /// Returns number of current asks
     pub fn asks(&self) -> usize {
         self.asks.len()
@@ -303,9 +306,9 @@ impl OrderBook {
 
         match side {
             Side::Buy => {
-                let entry = self.bids.entry(order.price()).or_insert(vec![]);
+                let entry = self.bids.entry(order.price()).or_insert_with(Vec::new);
 
-                if price >= self.min_ask && self.asks.len() > 0 {
+                if price >= self.min_ask && !self.asks.is_empty() {
                     if self.trade_active {
                         // Check if corresponding order in asks and can trade
                         if let Some(val) = self.asks.get_mut(&order.price()) {
@@ -322,7 +325,7 @@ impl OrderBook {
                                     let trade_resp = trade.get_trade_response();
 
                                     self.trades.push(trade);
-                                    if val.len() == 0 {
+                                    if val.is_empty() {
                                         self.asks.remove_entry(&price);
                                     }
                                     res = (Some(ack), Some(trade_resp));
@@ -349,7 +352,7 @@ impl OrderBook {
                                 qty: 0,
                             },
                             |acc, o| match acc {
-                                Response::Best { side, price, qty } => Response::Best {
+                                Response::Best { side, price: _, qty } => Response::Best {
                                     side,
                                     price: o.price(),
                                     qty: qty + o.qty(),
@@ -367,7 +370,7 @@ impl OrderBook {
             Side::Sell => {
                 let entry = self.asks.entry(order.price()).or_insert(vec![]);
 
-                if price <= self.max_bid && self.bids.len() > 0 {
+                if price <= self.max_bid && !self.bids.is_empty() {
                     // Check if corresponding order in asks and can trade
                     if self.trade_active {
                         if let Some(val) = self.bids.get_mut(&order.price()) {
@@ -411,7 +414,7 @@ impl OrderBook {
                                 qty: 0,
                             },
                             |acc, o| match acc {
-                                Response::Best { side, price, qty } => Response::Best {
+                                Response::Best { side, price: _, qty } => Response::Best {
                                     side,
                                     price: o.price(),
                                     qty: qty + o.qty(),
@@ -468,7 +471,7 @@ impl OrderBook {
                             self.min_ask = *k;
                             res = (
                                 Some(Response::Acknowledge { user_id, order_id }),
-                                Some(self.asks.get_key_value(&k).unwrap().1[0].best(Side::Sell)),
+                                Some(self.asks.get_key_value(k).unwrap().1[0].best(Side::Sell)),
                             );
                         }
                         None => {
@@ -517,7 +520,7 @@ impl OrderBook {
                                 self.max_bid = *k;
                                 res = (
                                     Some(Response::Acknowledge { user_id, order_id }),
-                                    Some(self.bids.get_key_value(&k).unwrap().1[0].best(Side::Buy)),
+                                    Some(self.bids.get_key_value(k).unwrap().1[0].best(Side::Buy)),
                                 );
                             }
                             None => {
@@ -561,7 +564,7 @@ impl OrderBook {
         match action {
             UserAction::NewOrder {
                 user_id,
-                symbol,
+                symbol: _,
                 price,
                 qty,
                 side,
@@ -576,6 +579,7 @@ impl OrderBook {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
 
