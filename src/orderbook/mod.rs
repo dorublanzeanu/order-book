@@ -322,17 +322,39 @@ impl OrderBook {
         self.asks.len()
     }
 
-    /// Private method that tries to insert a new sell order
-    fn new_sell_order(&mut self, order: Order) -> (Option<Response>, Option<Response>) {
+    /// Private method that tries to insert a new order for given collection
+    /// TODO: In case an order which matches offer, implement a way to print
+    /// Ack, Trade, Best
+    /// As of now it only prins: Ack, Trade
+    fn new_order_logic(
+        // Collection in which to insert
+        col_insert: &mut HashMap<u32, Vec<Order>>,
+        // Collection in which to search equivalent offer
+        col_search: &mut HashMap<u32, Vec<Order>>,
+        // Vec of trades in case of need
+        trades: &mut Vec<Trade>,
+        // Best price of same time - competitors
+        best: &mut u32,
+        // Best opposite price - the offer
+        best_opposite: &mut u32,
+        order: Order,
+        side: Side,
+        trade_active: bool,
+        // function to check whether price crosses book
+        f: impl Fn(u32, u32) -> bool,
+    ) -> (Option<Response>, Option<Response>) {
         let mut res = (None, None);
         let price = order.price();
 
-        let entry = self.asks.entry(order.price()).or_insert(vec![]);
+        // Get Vec of orders corresponding with price in target insert collection
+        let entry = col_insert.entry(order.price()).or_insert(vec![]);
 
-        if price <= self.max_bid && !self.bids.is_empty() {
-            // Check if corresponding order in asks and can trade
-            if self.trade_active {
-                if let Some(val) = self.bids.get_mut(&order.price()) {
+        // if price crosses book and there are opposing offers
+        if f(price, *best_opposite) && !col_search.is_empty() {
+            // Check if corresponding order can trade
+            if trade_active {
+                // Get corresponding offer price order list
+                if let Some(val) = col_search.get_mut(&order.price()) {
                     match val.iter().enumerate().find_map(|(k, o)| {
                         if o.qty() == order.qty() {
                             Some(k)
@@ -340,108 +362,64 @@ impl OrderBook {
                             None
                         }
                     }) {
+                        // If corresponding price exists in offers list
                         Some(k) => {
+                            // Get ack response before consuming
                             let ack = order.ack();
-                            let trade = Trade::new(val.remove(k), order);
+
+                            // Get trade by consuming the 2 orders
+                            let trade = match side {
+                                Side::Buy => Trade::new(order, val.remove(k)),
+                                Side::Sell => Trade::new(val.remove(k), order),
+                            };
+
+                            // Get trade response to return from this method
                             let trade_resp = trade.get_trade_response();
 
-                            self.trades.push(trade);
-                            if val.len() == 0 {
-                                self.bids.remove_entry(&price);
-                            }
-                            res = (Some(ack), Some(trade_resp));
-                        }
-                        None => {
-                            res = (Some(order.reject()), None);
-                        }
-                    }
-                }
-            } else {
-                res = (Some(order.reject()), None);
-            }
-        } else if price <= self.min_ask || self.min_ask == 0 {
-            let ack = order.ack();
-            // if none of the above check if best bid
-            self.min_ask = price;
-            entry.push(order);
-            res = (
-                Some(ack),
-                Some(entry.iter().fold(
-                    Response::Best {
-                        side: String::from("S"),
-                        price: 0,
-                        qty: 0,
-                    },
-                    |acc, o| match acc {
-                        Response::Best {
-                            side,
-                            price: _,
-                            qty,
-                        } => Response::Best {
-                            side,
-                            price: o.price(),
-                            qty: qty + o.qty(),
-                        },
-                        _ => acc,
-                    },
-                )),
-            );
-        } else {
-            // if none of the above matches, ack order
-            res = (Some(order.ack()), None);
-            entry.push(order);
-        }
+                            trades.push(trade);
 
-        res
-    }
-
-    /// Private method that tries to insert a new buy order
-    fn new_buy_order(&mut self, order: Order) -> (Option<Response>, Option<Response>) {
-        let mut res = (None, None);
-        let price = order.price();
-
-        let entry = self.bids.entry(order.price()).or_insert_with(Vec::new);
-
-        if price >= self.min_ask && !self.asks.is_empty() {
-            if self.trade_active {
-                // Check if corresponding order in asks and can trade
-                if let Some(val) = self.asks.get_mut(&order.price()) {
-                    match val.iter().enumerate().find_map(|(k, o)| {
-                        if o.qty() == order.qty() {
-                            Some(k)
-                        } else {
-                            None
-                        }
-                    }) {
-                        Some(k) => {
-                            let ack = order.ack();
-                            let trade = Trade::new(order, val.remove(k));
-                            let trade_resp = trade.get_trade_response();
-
-                            self.trades.push(trade);
+                            // If removed equivalent last offer of this price
                             if val.is_empty() {
-                                self.asks.remove_entry(&price);
+                                col_search.remove_entry(&price);
+
+                                // Recalculate best opposite offer
+                                *best_opposite = match side {
+                                    Side::Buy => *col_search.keys().min().unwrap_or(&0),
+                                    Side::Sell => *col_search.keys().max().unwrap_or(&0),
+                                };
+
                             }
                             res = (Some(ack), Some(trade_resp));
                         }
+                        // If corresponding price does not exist in offers list -> reject book crossing
                         None => {
                             res = (Some(order.reject()), None);
                         }
                     }
                 }
-            } else {
+            }
+            // Reject Order - Trading not allowed
+            else {
                 res = (Some(order.reject()), None);
             }
-        } else if price >= self.max_bid || self.max_bid == 0 {
-            // if none of the above check if best bid and
+        }
+        // Check if new order exceeds current best
+        else if f(price, *best) || *best == 0 {
+            // Get ack response before consuming order
             let ack = order.ack();
-            self.max_bid = price;
+
+            // Change best price
+            *best = price;
+
+            // Push order to OrderBook
             entry.push(order);
+
+            // Get Response with Best being Sum of quantities
             res = (
                 Some(ack),
                 Some(entry.iter().fold(
                     Response::Best {
-                        side: String::from("B"),
+                        side: side.get_one_letter_string(),
                         price: 0,
                         qty: 0,
                     },
@@ -471,8 +449,29 @@ impl OrderBook {
     /// Private method that tries to insert a new order
     fn new_order(&mut self, side: Side, order: Order) -> (Option<Response>, Option<Response>) {
         match side {
-            Side::Buy => self.new_buy_order(order),
-            Side::Sell => self.new_sell_order(order),
+            // Side::Buy => self.new_buy_order(order),
+            Side::Buy => Self::new_order_logic(
+                &mut self.bids,
+                &mut self.asks,
+                &mut self.trades,
+                &mut self.max_bid,
+                &mut self.min_ask,
+                order,
+                Side::Buy,
+                self.trade_active,
+                |a, b| a >= b,
+            ),
+            Side::Sell => Self::new_order_logic(
+                &mut self.asks,
+                &mut self.bids,
+                &mut self.trades,
+                &mut self.min_ask,
+                &mut self.max_bid,
+                order,
+                Side::Sell,
+                self.trade_active,
+                |a, b| a <= b,
+            ),
         }
     }
 
